@@ -1,6 +1,5 @@
 import torch
 
-
 class ClassificationNetwork(torch.nn.Module):
     def __init__(self):
         """
@@ -21,15 +20,15 @@ class ClassificationNetwork(torch.nn.Module):
                         [0., 0., 0.8]]      # brake
 
         self.features_2d = torch.nn.Sequential(
-            torch.nn.Conv2d(1, 4, 3, stride=1),
+            torch.nn.Conv2d(1, 2, 3, stride=1),
             torch.nn.LeakyReLU(negative_slope=0.2), # 94x94
-            torch.nn.Conv2d(4, 8, 3, stride=2),
+            torch.nn.Conv2d(2, 4, 3, stride=2),
             torch.nn.LeakyReLU(negative_slope=0.2),  # 46x46
-            torch.nn.Conv2d(8, 16, 3, stride=2),
+            torch.nn.Conv2d(4, 8, 3, stride=2),
             torch.nn.LeakyReLU(negative_slope=0.2),  # 22x22
         ).to(gpu)
         self.scores = torch.nn.Sequential(
-            torch.nn.Linear(16*22*22, 64),
+            torch.nn.Linear(8*22*22, 64),
             torch.nn.LeakyReLU(negative_slope=0.2),
             torch.nn.Linear(64, 32),
             torch.nn.LeakyReLU(negative_slope=0.2),
@@ -78,7 +77,7 @@ class ClassificationNetwork(torch.nn.Module):
             observation[:, :, :, 2] * 0.1140
 
         # crop and reshape observations to 84 x 96
-        obs = observation[:, :84, :].reshape(batch_size, 1, 84,96)
+        obs = observation[:, :84, :].reshape(batch_size, 1, 84, 96)
 
         # get features
         features_2d = self.features_2d(obs).reshape(batch_size, -1)

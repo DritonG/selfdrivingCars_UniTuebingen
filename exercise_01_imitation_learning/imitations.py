@@ -47,7 +47,6 @@ def save_imitations(data_folder, actions, observations):
         idx = np.load(idx_file)
     else:
         idx = 0
-
     for i in range(int(len(actions))):
         print(("Saving %d/%d" %(10*i, len(actions))))
         np.save(os.path.join(data_folder, "observation_%05d.npy" % (idx +i)), observations[10*i])
