@@ -7,7 +7,7 @@ import gym
 from training import train
 from imitations import record_imitations
 
-directory = "./"  ######## change that! ########
+directory = ""  ######## change that! ########
 trained_network_file = os.path.join(directory, 'data/train.t7')
 imitations_folder = os.path.join(directory, 'data/teacher')
 
@@ -19,7 +19,8 @@ def evaluate():
     infer_action.eval()
     env = gym.make('CarRacing-v0')
     # you can set it to torch.device('cuda') in case you have a gpu
-    device = torch.device('cpu')
+    device = torch.device('cuda')
+    #device = torch.device('cpu')
     infer_action = infer_action.to(device)
 
 
@@ -29,10 +30,9 @@ def evaluate():
         reward_per_episode = 0
         for t in range(500):
             env.render()
-            action_scores = infer_action(torch.Tensor(
-                np.ascontiguousarray(observation[None])).to(device))
+            action_scores = infer_action(torch.Tensor(np.ascontiguousarray(observation[None])).to(device))
 
-            steer, gas, brake = infer_action.scores_to_action(action_scores)
+            steer, gas, brake = infer_action.class_to_action(action_scores)
             observation, reward, done, info = env.step([steer, gas, brake])
             reward_per_episode += reward
 
@@ -65,7 +65,7 @@ def calculate_score_for_leaderboard():
             action_scores = infer_action(torch.Tensor(
                 np.ascontiguousarray(observation[None])).to(device))
 
-            steer, gas, brake = infer_action.scores_to_action(action_scores)
+            steer, gas, brake = infer_action.class_to_action(action_scores)
             observation, reward, done, info = env.step([steer, gas, brake])
             reward_per_episode += reward
 
