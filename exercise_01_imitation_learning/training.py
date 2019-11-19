@@ -4,7 +4,6 @@ import time
 import torch
 from imitations import load_imitations
 from network import ClassificationNetwork, MultiClassNetwork
-
 #imports for plotting
 import matplotlib.pyplot as plt
 

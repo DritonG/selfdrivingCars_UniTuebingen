@@ -12,26 +12,33 @@ class ClassificationNetwork(torch.nn.Module):
         gpu = torch.device('cuda')
         # gpu = torch.device('cpu')
 
-        self.classes = [[1., 0., 0.],  # turn left
+        self.classes = [[1., 0., 0.],    # turn left
                         [-1., 0.5, 0.],  # turn left + gas
                         [-1., 0., 0.8],  # turn left + brake
-                        [1., 0., 0.],  # turn right
-                        [1., 0.5, 0.],  # turn right + gas
-                        [1., 0., 0.8],  # turn right + brake
-                        [0., 0., 0.],  # do nothing
-                        [0., 0.5, 0.],  # gas
-                        [0., 0., 0.8]]  # brake
+                        [1., 0., 0.],    # turn right
+                        [1., 0.5, 0.],   # turn right + gas
+                        [1., 0., 0.8],   # turn right + brake
+                        [0., 0., 0.],    # do nothing
+                        [0., 0.5, 0.],   # gas
+                        [0., 0., 0.8]]   # brake
 
-        self.features_2d = torch.nn.Sequential(
-            torch.nn.Conv2d(1, 2, 3, stride=1),
-            torch.nn.LeakyReLU(negative_slope=0.2),  # 94x94
-            torch.nn.Conv2d(2, 4, 3, stride=2),
-            torch.nn.LeakyReLU(negative_slope=0.2),  # 46x46
-            torch.nn.Conv2d(4, 8, 3, stride=2),
-            torch.nn.LeakyReLU(negative_slope=0.2),  # 22x22
+        self.conv_layers = torch.nn.Sequential(
+            torch.nn.Conv2d(1, 4, 3, stride=1),     # 94x94
+            #torch.nn.MaxPool2d(2, 2),
+            torch.nn.LeakyReLU(negative_slope=0.2),
+            torch.nn.Conv2d(4, 8, 3, stride=1),     # 92x92
+            torch.nn.MaxPool2d(2, 2),               # 46x46
+            torch.nn.LeakyReLU(negative_slope=0.2),
+            torch.nn.Conv2d(8, 16, 3, stride=1),    # 44x44
+            torch.nn.MaxPool2d(2, 2),               # 22x22
+            torch.nn.LeakyReLU(negative_slope=0.2),
+
         ).to(gpu)
-        self.scores = torch.nn.Sequential(
-            torch.nn.Linear(3351, 64), # 8 * 22 * 22
+        self.fully_layers = torch.nn.Sequential(
+            # TODO: change the initial input of the fully_layers to 16*XX*XX
+            torch.nn.Linear(3351, 96), # default was -> 16* 22 * 22 but after adding sensor values adjusted to 3351
+            torch.nn.LeakyReLU(negative_slope=0.2),
+            torch.nn.Linear(96, 64),
             torch.nn.LeakyReLU(negative_slope=0.2),
             torch.nn.Linear(64, 32),
             torch.nn.LeakyReLU(negative_slope=0.2),
@@ -50,14 +57,14 @@ class ClassificationNetwork(torch.nn.Module):
         return         torch.Tensor of size (batch_size, number_of_classes)
         """
         batch_size = observation.shape[0]
-        # conversion to gray scale
+        # grayscaling
         observation = observation[:, :, :, 0] * 0.2989 + \
                       observation[:, :, :, 1] * 0.5870 + \
                       observation[:, :, :, 2] * 0.1140
 
-        obs = observation.reshape(batch_size, 1, 96, 96)
-        features_2d = self.features_2d(obs).reshape(batch_size, -1)
-        return self.scores(features_2d)
+        obs_gray = observation.reshape(batch_size, 1, 96, 96)
+        conv_layers = self.conv_layers(obs_gray).reshape(batch_size, -1)
+        return self.fully_layers(conv_layers)
 
     ########################## Adding more features to the input ###########################################
     def forward(self, observation):
@@ -80,20 +87,20 @@ class ClassificationNetwork(torch.nn.Module):
                       observation[:, :, :, 2] * 0.1140
 
         # crop and reshape observations to 84 x 96
-        obs = observation[:, :84, :].reshape(batch_size, 1, 84, 96)
+        obs_gray = observation[:, :84, :].reshape(batch_size, 1, 84, 96)
 
         # get features
-        features_2d = self.features_2d(obs).reshape(batch_size, -1)
+        conv_layers = self.conv_layers(obs_gray).reshape(batch_size, -1)
         #features_1d = self.features_1d(features_2d)
 
-        fused_features = torch.cat((
+        combined_features = torch.cat((
             speed,  # batch_size x 1
             abs_sensors,  # batch_size x 4
             steering,  # batch_size x 1
             gyroscope,  # batch_size x 16
-            features_2d), 1)
+            conv_layers), 1)
         #print(fused_features.shape)
-        return self.scores(fused_features)
+        return self.fully_layers(combined_features)
 
     def actions_to_classes(self, actions):
         """
@@ -106,7 +113,10 @@ class ClassificationNetwork(torch.nn.Module):
         actions:        python list of N torch.Tensors of size 3
         return          python list of N torch.Tensors of size number_of_classes
         """
-        # pass
+        # class_tensor = []
+        # for current_class in torch.Tensor(self.classes):
+        #     for action in actions:
+
         return [torch.Tensor([int(torch.prod(action == this_class)) for this_class in torch.Tensor(self.classes)]) for
                 action in actions]
 
@@ -118,8 +128,8 @@ class ClassificationNetwork(torch.nn.Module):
         scores:         python list of torch.Tensors of size number_of_classes
         return          (float, float, float)
         """
-        _, class_number = torch.max(scores[0], dim=0)
-        steer, gas, brake = self.classes[class_number]
+        _, class_nr = torch.max(scores[0], dim=0)
+        steer, gas, brake = self.classes[class_nr]
         return steer, gas, brake
 
 class MultiClassNetwork(torch.nn.Module):
@@ -131,20 +141,22 @@ class MultiClassNetwork(torch.nn.Module):
         gpu = torch.device('cuda')
         # gpu = torch.device('cpu')
 
-        self.features_2d = torch.nn.Sequential(
-            torch.nn.Conv2d(1, 2, 3, stride=1),
-            torch.nn.BatchNorm2d(2),
-            torch.nn.LeakyReLU(negative_slope=0.2),  # 94x94
-            torch.nn.Conv2d(2, 4, 3, stride=2),
+        self.conv_layers = torch.nn.Sequential(
+            torch.nn.Conv2d(1, 4, 3, stride=1),
             torch.nn.BatchNorm2d(4),
-            torch.nn.LeakyReLU(negative_slope=0.2),  # 46x46
-            torch.nn.Conv2d(4, 8, 3, stride=2),
+            torch.nn.LeakyReLU(negative_slope=0.2),
+            torch.nn.Conv2d(4, 8, 3, stride=1),
+            torch.nn.MaxPool2d(2, 2),
             torch.nn.BatchNorm2d(8),
-            torch.nn.LeakyReLU(negative_slope=0.2)  # 22x22
+            torch.nn.LeakyReLU(negative_slope=0.2),
+            torch.nn.Conv2d(8, 16, 3, stride=1),
+            torch.nn.MaxPool2d(2, 2),
+            torch.nn.BatchNorm2d(16),
+            torch.nn.LeakyReLU(negative_slope=0.2)
         ).to(gpu)
 
-        self.scores = torch.nn.Sequential(
-            torch.nn.Linear(8 * 22 * 22, 64),
+        self.fully_layers = torch.nn.Sequential(
+            torch.nn.Linear(6695, 64),              #16 * 22 * 22
             torch.nn.BatchNorm1d(64),
             torch.nn.LeakyReLU(negative_slope=0.2),
             torch.nn.Linear(64, 32),
@@ -164,36 +176,47 @@ class MultiClassNetwork(torch.nn.Module):
 
     def forward(self, observation):
         batch_size = observation.shape[0]
+
+        # extract sensor values
+        speed, abs_sensors, steering, gyroscope = extract_sensor_values(observation, batch_size)
         # conversion to gray scale
         observation = observation[:, :, :, 0] * 0.2989 + \
                       observation[:, :, :, 1] * 0.5870 + \
                       observation[:, :, :, 2] * 0.1140
-
-        # extract sensor values
-        #speed, abs_sensors, steering, gyroscope = self.extract_sensor_values(observation, batch_size)
-
-        obs = observation.reshape(batch_size, 1, 96, 96)
+        # obs_gray = observation.reshape(batch_size, 1, 96, 96)
         # crop and reshape observations to 84 x 96 to add sensor values
-        #obs = observation[:, :84, :].reshape(batch_size, 1, 84, 96)
+        obs_gray = observation[:, :84, :].reshape(batch_size, 1, 84, 96)
 
-        features_2d = self.features_2d(obs).reshape(batch_size, -1)
+        conv_layers = self.conv_layers(obs_gray).reshape(batch_size, -1)
         # features_1d = self.scores(features_2d)
 
-        # fused_features = torch.cat((
-        #     speed,  # batch_size x 1
-        #     abs_sensors,  # batch_size x 4
-        #     steering,  # batch_size x 1
-        #     gyroscope,  # batch_size x 16
-        #     features_2d), 1)
-        # print(fused_features.shape)
-        return self.scores(features_2d)
+        fused_features = torch.cat((
+            speed,  # batch_size x 1
+            abs_sensors,  # batch_size x 4
+            steering,  # batch_size x 1
+            gyroscope,  # batch_size x 16
+            conv_layers), 1)
+        #print(fused_features.shape)
+        return self.fully_layers(fused_features)
 
     def class_to_action(self, action_scores):
-        steer_difference = action_scores[0][0] - action_scores[0][1]
-        steer = -1.0 if steer_difference > 0.5 else 0.0
-        steer = 1.0 if steer_difference < -0.5 else steer
-        gas = 0.5 if action_scores[0][2] > 0.5 else 0.0
-        brake = 0.8 if action_scores[0][3] > 0.5 else 0.0
+        difference = action_scores[0][0] - action_scores[0][1]
+        #steer = 0
+        if difference > 0.5:
+            steer = -1.0
+        elif difference < -0.5:
+            steer = 1.0
+        else:
+            steer = 0
+        if action_scores[0][2] > 0.5:
+            gas = 0.5
+        else:
+            gas = 0.
+
+        if action_scores[0][3] > 0.5:
+            brake = 0.8
+        else:
+            brake = 0.0
         return steer, gas, brake
 
     def actions_to_classes(self, actions):
@@ -202,7 +225,7 @@ class MultiClassNetwork(torch.nn.Module):
                 action in actions]
 
 
-def extract_sensor_values(self, observation, batch_size):
+def extract_sensor_values(observation, batch_size):
     """
     observation:    python list of batch_size many torch.Tensors of size
                     (96, 96, 3)

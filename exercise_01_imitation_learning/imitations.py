@@ -1,5 +1,5 @@
 import os
-
+import glob
 import gym
 import numpy as np
 from pyglet.window import key
@@ -17,17 +17,24 @@ def load_imitations(data_folder):
     observations:   python list of N numpy.ndarrays of size (96, 96, 3)
     actions:        python list of N numpy.ndarrays of size 3
     """
-    idx_file = os.path.join(data_folder, "count.npy")
-    assert os.path.exists(idx_file), "file doesn't exist: %s" % idx_file
-    idx = np.load(idx_file)
+    owd = os.getcwd()
+    os.chdir(data_folder)
+    actions_names = glob.glob("action_*.npy")
+    observations_names = glob.glob("observation_*.npy")
+    actions_names.sort()
+    observations_names.sort()
+    actions = []
+    for fname in actions_names:
+        inf_from_every_file = np.load(fname)
+        actions.append(inf_from_every_file)
+    actions = np.array(actions)
 
     observations = []
-    actions = []
-    for i in range(idx):
-        if i % max(1, int(idx / 10)) == 0:
-            print("preloading data %d/%d" % (i, idx - 1))
-        observations.append(np.load(os.path.join(data_folder, "observation_%05d.npy" % i)))
-        actions.append(np.load(os.path.join(data_folder, "action_%05d.npy" % i)))
+    for fname in observations_names:
+        inf_from_every_file = np.load(fname)
+        observations.append(inf_from_every_file)
+    observations = np.array(observations)
+    os.chdir(owd)
     return observations, actions
 
 def save_imitations(data_folder, actions, observations):
@@ -48,7 +55,6 @@ def save_imitations(data_folder, actions, observations):
     else:
         idx = 0
     for i in range(int(len(actions))):
-        print(("Saving %d/%d" %(10*i, len(actions))))
         np.save(os.path.join(data_folder, "observation_%05d.npy" % (idx +i)), observations[10*i])
         np.save(os.path.join(data_folder, "action_%05d.npy" % (idx +i)), np.array(actions[10*i]))
         np.save(idx_file, idx + int(len(actions)/10))
