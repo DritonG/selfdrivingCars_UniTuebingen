@@ -4,7 +4,9 @@ import time
 import torch
 from imitations import load_imitations
 from network import ClassificationNetwork, MultiClassNetwork
-#imports for plotting
+from torchvision import transforms
+
+# imports for plotting
 import matplotlib.pyplot as plt
 
 def train(data_folder, trained_network_file):
@@ -14,7 +16,7 @@ def train(data_folder, trained_network_file):
     infer_action = MultiClassNetwork()
 #    infer_action = ClassificationNetwork()
     print(infer_action)
-    optimizer = torch.optim.Adam(infer_action.parameters(), lr=1e-2)
+    optimizer = torch.optim.Adam(infer_action.parameters(), lr=0.02)
     observations, actions = load_imitations(data_folder)
     observations = [torch.Tensor(observation) for observation in observations]
     actions = [torch.Tensor(action) for action in actions]
@@ -23,11 +25,16 @@ def train(data_folder, trained_network_file):
     gpu = torch.device('cuda')
     #gpu = torch.device('cpu')
 
-    nr_epochs = 200
+    nr_epochs = 300
     batch_size = 128
     number_of_classes = 4  # needs to be changed: 9 for classificationNetwork() and 4 if MultiClassNetwork()
     start_time = time.time()
     loss_plot = []
+
+    # trying to augment the data
+    # transform = transforms.Compose([
+    #     transforms.RandomHorizontalFlip(),
+    # ])
 
     for epoch in range(nr_epochs):
         random.shuffle(batches)
@@ -46,8 +53,11 @@ def train(data_folder, trained_network_file):
                                          (-1, number_of_classes))
 
                 batch_out = infer_action(batch_in)
+                # we tried another cross entropy loss for the multiclass network,
+                # but the results weren't better so we switched back
+                #criterion = torch.nn.BCELoss(reduction='mean')
+                #loss = criterion(batch_out, batch_gt)
                 loss = cross_entropy_loss(batch_out, batch_gt)
-
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
@@ -60,6 +70,9 @@ def train(data_folder, trained_network_file):
         print("Epoch %5d\t[Train]\tloss: %.6f \tETA: +%fs" % (
             epoch + 1, total_loss, time_left))
         loss_plot.append(total_loss)
+        # if (epoch %100) == 0):
+        #     optimizer
+
     torch.save(infer_action, trained_network_file)
 
     # plotting the loss/learning curve
@@ -82,5 +95,32 @@ def cross_entropy_loss(batch_out, batch_gt):
     """
     # pass
     epsilon = 0.000001
-    loss = batch_gt * torch.log(batch_out + epsilon) + (1 - batch_gt) * torch.log(1 -batch_out + epsilon)
+    loss = batch_gt * torch.log(batch_out + epsilon) + (1 - batch_gt) * torch.log(1 - batch_out + epsilon)
     return -torch.mean(torch.sum(loss, dim=1), dim=0)
+
+
+# class CelebA(data.Dataset):
+#     """
+#     A class to perform data augmentation on our imitations
+#     """
+#     def __init__(self):
+#           self.data_arr = ... # define the data-array (load from file)
+#           self.labels = ... # define the labels
+#
+#           self.transform = transforms.Compse([
+#               transforms.RandomCrop(20),
+#               transforms.RandomHorizontalFlip(),
+#               transforms.ToTensor()])
+#
+#     def __getitem(self, index):
+#          np_arr = self.data_arr[index, :]
+#          y = self.labels[index]
+#
+#          ## reshape np_arr to 28x28
+#          np_arr = np_arr.reshape(28, 28)
+#
+#          ## convert to PIL-image
+#          img = Image.fromarray((np_arr*255).astype('uint8'))
+#
+#          #apply the transformations and return tensors
+#          return self.transform(img), torch.FloatTensor(y)

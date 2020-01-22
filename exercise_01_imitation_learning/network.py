@@ -36,7 +36,7 @@ class ClassificationNetwork(torch.nn.Module):
         ).to(gpu)
         self.fully_layers = torch.nn.Sequential(
             # TODO: change the initial input of the fully_layers to 16*XX*XX
-            torch.nn.Linear(3351, 96), # default was -> 16* 22 * 22 but after adding sensor values adjusted to 3351
+            torch.nn.Linear(3351, 96),  # default was -> 16* 22 * 22 but after adding sensor values adjusted to 3351
             torch.nn.LeakyReLU(negative_slope=0.2),
             torch.nn.Linear(96, 64),
             torch.nn.LeakyReLU(negative_slope=0.2),
@@ -94,12 +94,12 @@ class ClassificationNetwork(torch.nn.Module):
         #features_1d = self.features_1d(features_2d)
 
         combined_features = torch.cat((
-            speed,  # batch_size x 1
-            abs_sensors,  # batch_size x 4
-            steering,  # batch_size x 1
-            gyroscope,  # batch_size x 16
+            speed,
+            abs_sensors,
+            steering,
+            gyroscope,
             conv_layers), 1)
-        #print(fused_features.shape)
+        #print(combined_features.shape)
         return self.fully_layers(combined_features)
 
     def actions_to_classes(self, actions):
@@ -142,35 +142,39 @@ class MultiClassNetwork(torch.nn.Module):
         # gpu = torch.device('cpu')
 
         self.conv_layers = torch.nn.Sequential(
-            torch.nn.Conv2d(1, 4, 3, stride=1),
+            torch.nn.Conv2d(1, 2, 3, stride=1),
+            torch.nn.BatchNorm2d(2),
+            torch.nn.LeakyReLU(negative_slope=0.2),
+            torch.nn.Conv2d(2, 4, 3, stride=1),
+            torch.nn.MaxPool2d(2, 2),
             torch.nn.BatchNorm2d(4),
             torch.nn.LeakyReLU(negative_slope=0.2),
             torch.nn.Conv2d(4, 8, 3, stride=1),
             torch.nn.MaxPool2d(2, 2),
             torch.nn.BatchNorm2d(8),
             torch.nn.LeakyReLU(negative_slope=0.2),
-            torch.nn.Conv2d(8, 16, 3, stride=1),
-            torch.nn.MaxPool2d(2, 2),
-            torch.nn.BatchNorm2d(16),
-            torch.nn.LeakyReLU(negative_slope=0.2)
+            # torch.nn.Conv2d(8, 16, 3, stride=1),
+            # torch.nn.MaxPool2d(2, 2),
+            # torch.nn.BatchNorm2d(16),
+            # torch.nn.LeakyReLU(negative_slope=0.2)
         ).to(gpu)
 
         self.fully_layers = torch.nn.Sequential(
-            torch.nn.Linear(6695, 64),              #16 * 22 * 22
-            torch.nn.BatchNorm1d(64),
-            torch.nn.LeakyReLU(negative_slope=0.2),
-            torch.nn.Linear(64, 32),
+            torch.nn.Linear(3351, 32),                  # 16x8x10 + 7 sensor values
             torch.nn.BatchNorm1d(32),
             torch.nn.LeakyReLU(negative_slope=0.2),
+            # torch.nn.Linear(64, 32),
+            # torch.nn.BatchNorm1d(32),
+            # torch.nn.LeakyReLU(negative_slope=0.2),
             torch.nn.Linear(32, 16),
             torch.nn.BatchNorm1d(16),
             torch.nn.LeakyReLU(negative_slope=0.2),
-            torch.nn.Linear(16, 8),
-            torch.nn.BatchNorm1d(8),
-            torch.nn.LeakyReLU(negative_slope=0.2),
-            torch.nn.Linear(8, 4),
+            torch.nn.Linear(16, 4),
             torch.nn.BatchNorm1d(4),
             torch.nn.LeakyReLU(negative_slope=0.2),
+            # torch.nn.Linear(8, 4),
+            # torch.nn.BatchNorm1d(4),
+            # torch.nn.LeakyReLU(negative_slope=0.2),
             torch.nn.Sigmoid()
         ).to(gpu)
 
@@ -186,20 +190,22 @@ class MultiClassNetwork(torch.nn.Module):
         # obs_gray = observation.reshape(batch_size, 1, 96, 96)
         # crop and reshape observations to 84 x 96 to add sensor values
         obs_gray = observation[:, :84, :].reshape(batch_size, 1, 84, 96)
-
+        #print(self.conv_layers(obs_gray).shape)
         conv_layers = self.conv_layers(obs_gray).reshape(batch_size, -1)
-        # features_1d = self.scores(features_2d)
 
-        fused_features = torch.cat((
-            speed,  # batch_size x 1
-            abs_sensors,  # batch_size x 4
-            steering,  # batch_size x 1
-            gyroscope,  # batch_size x 16
+        combined_features = torch.cat((
+            speed,
+            abs_sensors,
+            steering,
+            gyroscope,
             conv_layers), 1)
-        #print(fused_features.shape)
-        return self.fully_layers(fused_features)
+        #print(conv_layers.shape)
+        #print(combined_features.shape)
+        return self.fully_layers(combined_features)
 
     def class_to_action(self, action_scores):
+        # calculating the first two entries which declare the streerings, to combinate and get one steer action,
+        # because we cant steer right + left at the same time: thresholds is at -+0.5
         difference = action_scores[0][0] - action_scores[0][1]
         #steer = 0
         if difference > 0.5:

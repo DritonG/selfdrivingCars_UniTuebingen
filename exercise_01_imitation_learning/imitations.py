@@ -48,7 +48,6 @@ def save_imitations(data_folder, actions, observations):
     observations:   python list of N numpy.ndarrays of size (96, 96, 3)
     actions:        python list of N numpy.ndarrays of size 3
     """
-    #pass
     idx_file = os.path.join(data_folder, "count.npy")
     if os.path.exists(idx_file):
         idx = np.load(idx_file)
